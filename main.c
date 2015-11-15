@@ -2,10 +2,14 @@
 #include <stdio.h>
 #include<stdlib.h>
 #include "project.h"
-int board[8][8];
 int turn=0;
-WINDOW *welcome,*chessboard,*debug;
+mstack s;
+extern int *karr;
+extern int count;
+WINDOW *welcome,*chessboard,*menuwin,*kwin;
 	bpos *b;
+int parent_x, parent_y;
+winsize wel,cb,kp;
 void initialize(){
 	int i,j;
 	for(i=2;i<6;i++)
@@ -21,13 +25,15 @@ void initialize(){
 void printboard( WINDOW *b);
 void draw_borders(WINDOW *screen);
 int main(int argc, char *argv[]) {
-	int parent_x, parent_y,c,x,y;
+	int c,x,y;
 	bpos *m;
-	winsize wel,cb,menuwin,kp;
-	initscr();//initialize the screen
+	init(&s);
+	new:	initscr();//initialize the screen
 	initialize();//initialize the board
 	noecho();
 	start_color();
+	init_pair(1,COLOR_WHITE,COLOR_BLACK);
+	init_pair(2,COLOR_RED,COLOR_WHITE);	
 	cbreak();
 	mousemask(ALL_MOUSE_EVENTS, NULL);
 	bool a;
@@ -39,36 +45,44 @@ int main(int argc, char *argv[]) {
 	cb.breadth=10*parent_x/16-10;
 	cb.length=parent_y-10;
 	welcome = newwin(wel.length,wel.breadth, 3*parent_y/10,4*parent_x/16 ); //initilaize welcome window
-	chessboard = newwin(cb.length,cb.breadth, 5, 5);//initialixe board window
-	debug=newwin(20,30,5,cb.breadth+6);//init debug window	
+	chessboard = newwin(cb.length,cb.breadth, 3, 5);//initialixe board window
+	menuwin=newwin(20,30,3,cb.breadth+6);//init menuwin window	
 	keypad(chessboard, TRUE);
-	keypad(welcome, TRUE);		
+	keypad(welcome, TRUE);
+	wbkgd(welcome,COLOR_PAIR(2));		
 	draw_borders(welcome);
-	mvwprintw(welcome, wel.length/2-1,wel.breadth/3 , "    Welcomeeeeee    ",A_STANDOUT);
+	mvwprintw(welcome, wel.length/2-1,wel.breadth/4 , "WELCOME TO THE GAME OF CHESS        ",A_STANDOUT);
 	wrefresh(welcome);
-	sleep(10);
+	sleep(5);
 	wclear(welcome);
-	wrefresh(welcome);draw_borders(welcome);
-	mvwprintw(welcome, wel.length/2-1,wel.breadth/3 , "   1.START A NEW GAME\n2.LOAD A PREVIOUS GAME     ",A_STANDOUT);
-	wrefresh(welcome);sleep(5);
+	wrefresh(welcome);
+	draw_borders(welcome);
+	mvwprintw(welcome, wel.length/2-1,wel.breadth/3 , "   1.START A NEW GAME\n                           2.EXIT     ",A_STANDOUT);
+	wrefresh(welcome);c=wgetch(welcome);
 	wclear(welcome);wrefresh(welcome);delwin(welcome);
-
-	draw_borders(chessboard);
-	
-	draw_borders(debug);
-	wrefresh(debug);
-	mvwprintw(chessboard, 0, 0, "Score");
-	mvwprintw(debug, 0, 0, "%d  %d",parent_x,parent_y);
-	delwin(welcome);
+	kwin=newwin(11,30,23,cb.breadth+6);
+	draw_borders(menuwin);
+	wrefresh(menuwin);
+	if(c=='1'){
+	draw_borders(chessboard);	
 	printboard(chessboard);
 	wrefresh(chessboard);
-	wrefresh(debug);
-	//sleep(10);
-	init_pair(1,COLOR_WHITE,COLOR_BLACK);
+	}
+	if(c=='2'){wclear(menuwin);wrefresh(menuwin);
+		welcome = newwin(wel.length,wel.breadth, 3*parent_y/10,4*parent_x/16 );draw_borders(welcome);
+		mvwprintw(welcome, wel.length/2-1,wel.breadth/4 , "Thank you for trying our game",A_STANDOUT);
+		wrefresh(welcome);wgetch(welcome);
+		goto end;
+	
+	}
+	
+	display_menu();
+	wrefresh(menuwin);
 	wbkgd(chessboard,COLOR_PAIR(1));
 	b= malloc(sizeof(bpos));
+	karr=(int *)malloc(sizeof(int)*30);
+	flipturn();
 	while(!gameover()){
-			wprintw(debug,"entered fist while loop");wrefresh(debug);
 			c = wgetch(chessboard);
 			switch(c)
 			{
@@ -78,30 +92,91 @@ int main(int argc, char *argv[]) {
 					/* When the user clicks left mouse button */
 						if(event.bstate & BUTTON1_PRESSED){
 							y=event.y;x=event.x;	
-							//wmouse_trafo(chessboard,&y,&x,a);
-							mvwprintw(debug,1,1,"%d%d ",y,x);wrefresh(debug);			
-							m =position(x,y);mvwprintw(debug,1,1,"%d%d ",m->col,m->row);wrefresh(debug);
+							m =position(x,y);
 							if(!((m->row+1)*(m->col+1))){
-									mvwprintw(debug,10,10,"not valid click again ");
-								wrefresh(debug);
+									mvwprintw(chessboard,1,45," not valid ");
+								wrefresh(chessboard);
 							}
 							else{
-								mvwprintw(debug,10,10,"%d       %c",m->row+1,'A'+m->col);
-								wrefresh(debug);
+								mvwprintw(chessboard,1,45,"chosen :%d %c",m->row+1,'A'+m->col);
+								wrefresh(chessboard);
 								game(m->row,m->col);						
 							}
 						}
 					}
 					break;
-				case KEY_UP:undo();wprintw(debug,"dsfdszx");
-						break;	//print_menu(menu_win, choice);
-			}
+				case 'u':case 'U':undo();
+						flipturn();	
+						wrefresh(chessboard);wrefresh(menuwin);
+						break;	
+				case 'N':case 'n':wclear(menuwin);
+					if(turn==0)
+					mvwprintw(menuwin,1,3,"Player 2:Are you sure you want to start a new game? :(");
+					else
+					mvwprintw(menuwin,1,3,"Player 1:Are you sure you want to start a new game? :(");
+					mvwprintw(menuwin,4,3,"Y/N");wrefresh(menuwin);
+					c=wgetch(menuwin);
+					switch(c){
+						case 'y':case 'Y':
+							wclear(menuwin);wclear(kwin);turn=0;wrefresh(menuwin);wrefresh(kwin);
+							wclear(chessboard);wrefresh(chessboard);
+							goto new;
+							break;
+						case 'n':case 'N':display_menu();
+							break;
+					}break;
+				case 'q':case 'Q':quitgame();goto end;break;
+				}
 			
 	}
-	wgetch(chessboard);
+	end:wgetch(chessboard);wclear(welcome);wrefresh(welcome);wclear(menuwin);wrefresh(menuwin);
 	delwin(chessboard);
 	endwin();
 	return 0;
+}
+void quitgame(){
+	int x=3,y=2;
+	char c;wclear(menuwin);draw_borders(menuwin);
+	if(turn==0){
+	mvwprintw(menuwin,y++,x,"Player 2: Are you sure you want to quit the game? :(");
+	}
+	else
+	mvwprintw(menuwin,y++,x,"Player 1: Are you sure you want to quit the game? :(");
+	mvwprintw(menuwin,++y,x,"Y/N");
+	wrefresh(menuwin);
+	c=wgetch(menuwin);
+	switch(c){
+		case 'y':case 'Y':
+			mvwprintw(menuwin,y++,x,"Do you wish to start a new game or exit?");
+			mvwprintw(menuwin,++y,x,"Press N for new game / E for exit");
+			c=wgetch(menuwin);
+			switch(c){
+				case 'n':case 'N':// goto new;return;
+							break;
+				case 'e':case 'E':wclear(chessboard);wclear(kwin);wclear(menuwin);
+						wrefresh(chessboard);wrefresh(kwin);wrefresh(menuwin);
+						welcome = newwin(wel.length,wel.breadth, 3*parent_y/10,4*parent_x/16 );draw_borders(welcome);
+						mvwprintw(welcome, wel.length/2-1,wel.breadth/4 , "Thank you for trying our game",A_STANDOUT);
+						wrefresh(welcome);break;
+			}
+			break;
+		case 'n':case 'N':display_menu();
+				return;
+	}
+	return;
+}	
+void display_menu(){
+	wclear(menuwin);
+	draw_borders(menuwin);
+	int x=3,y=2;
+	mvwprintw(menuwin,y++,x,"MENU");
+	mvwprintw(menuwin,y++,x,"1.New Game");
+	mvwprintw(menuwin,y++,x,"Press N");
+	mvwprintw(menuwin,y++,x,"2.Undo move");
+	mvwprintw(menuwin,y++,x,"Press U");
+	mvwprintw(menuwin,y++,x,"3.Quit game");
+	mvwprintw(menuwin,y++,x,"Press Q");
+	wrefresh(menuwin);
 }
 void draw_borders(WINDOW *screen) {
 	int x, y, i;
@@ -110,7 +185,7 @@ void draw_borders(WINDOW *screen) {
 	mvwprintw(screen, y - 1, 0, "+");
 	mvwprintw(screen, 0, x - 1, "+");
 	mvwprintw(screen, y - 1, x - 1, "+");
-    // sides
+	    // sides
 	for (i = 1; i < (y - 1); i++) {
 		mvwprintw(screen, i, 0, "|");
 		mvwprintw(screen, i, x - 1, "|");
@@ -121,7 +196,6 @@ void draw_borders(WINDOW *screen) {
 		mvwprintw(screen, y - 1, i, "-");
 	}
 }
-
 void printboard(WINDOW *b){
 	int i, j;
 	for(i=0; i<=YMAX; i++)
@@ -179,11 +253,10 @@ void printboard(WINDOW *b){
 		m=0;
 		j=STRTBX-1;		
 		for(i=STRTBY+1;i<STRTBY+24;i+=3){
-		mvwaddch(b,i,j,'1'+m); 
-		m++;	
+			mvwaddch(b,i,j,'1'+m); 
+			m++;	
 		}
 		init_pair(2,COLOR_RED,COLOR_BLACK);
-		
 		for(i=6;i<8;i++)
 			for(j=0;j<8;j++){
 				switch(abs(board[i][j])){
@@ -225,7 +298,7 @@ void printboard(WINDOW *b){
 bpos *position(int x,int y) {
 	b->row=-1;
 	b->col=-1;	
-	if(y>=STRTBY+5){
+	if(y>=STRTBY+3){
 		if((x>STRTBX)&&(x<STRTBX+5+6))
 			b->col=0;		
 		if((x>STRTBX+5+6)&&(x<STRTBX+5+12))
@@ -240,25 +313,25 @@ bpos *position(int x,int y) {
 			b->col=5;
 		if((x>STRTBX+5+36)&&(x<STRTBX+5+42))
 			b->col=6;
-		if((x>STRTBX+5+42)&&(x<STRTBX+48))
+		if((x>STRTBX+5+42)&&(x<STRTBX+5+48))
 			b->col=7;
 			}
 	if(x>=STRTBX+5){
-		if((y>STRTBY+5)&&(y<STRTBY+5+3))
+		if((y>STRTBY+3)&&(y<STRTBY+3+3))
 			b->row=0;
-		if((y>STRTBY+5+3)&&(y<STRTBY+5+6))
+		if((y>STRTBY+3+3)&&(y<STRTBY+3+6))
 			b->row=1;
-		if((y>STRTBY+5+6)&&(y<STRTBY+5+9))
+		if((y>STRTBY+3+6)&&(y<STRTBY+3+9))
 			b->row=2;
-		if((y>STRTBY+5+9)&&(y<STRTBY+5+12))
+		if((y>STRTBY+3+9)&&(y<STRTBY+3+12))
 			b->row=3;
-		if((y>STRTBY+5+12)&&(y<STRTBY+5+15))
+		if((y>STRTBY+3+12)&&(y<STRTBY+3+15))
 			b->row=4;
-		if((y>STRTBY+5+15)&&(y<STRTBY+5+18))
+		if((y>STRTBY+3+15)&&(y<STRTBY+3+18))
 			b->row=5;
-		if((y>STRTBY+5+18)&&(y<STRTBY+5+21))
+		if((y>STRTBY+3+18)&&(y<STRTBY+3+21))
 			b->row=6;
-		if((y>STRTBY+5+21)&&(y<STRTBX+24))
+		if((y>STRTBY+3+21)&&(y<STRTBY+3+24))
 			b->row=7;
 	}
 	return b;
